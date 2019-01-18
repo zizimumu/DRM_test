@@ -120,7 +120,7 @@ static int modeset_create_fb(int fd, struct buffer_object *bo)
 	handles[0] = bo->handle;
 	pitches[0] = bo->pitch;
 
-	ret = drmModeAddFB2(fd, bo->height, bo->height,
+	ret = drmModeAddFB2(fd, bo->width, bo->height,
 		    DRM_FORMAT_XRGB8888, handles, pitches, offsets,&bo->fb_id, 0);
 	if(ret ){
 		printf("drmModeAddFB2 return err %d\n",ret);
@@ -147,13 +147,24 @@ static int modeset_create_yuvfb(int fd, struct buffer_object *bo)
 	struct drm_mode_create_dumb create = {};
  	struct drm_mode_map_dumb map = {};
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
-	int ret;
+	int ret,virtual_height,hsub,vsub,height;
 
-	
 
+#if 0
+	// for yUV 422 model ,atmel_hlcdc_plane.c atmel_hlcdc_format_to_plane_mode case DRM_FORMAT_YUV422:*mode = ATMEL_HLCDC_YUYV_MODE
+	virtual_height = bo->height * 2;
 	create.width = bo->width;
-	create.height = bo->height;
+	create.height = virtual_height;
 	create.bpp = 8;
+#else
+	virtual_height = bo->height;
+	create.width = bo->width;
+	create.height = virtual_height;
+	create.bpp = 16;
+
+
+#endif
+	
 	drmIoctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &create);
 
 	bo->pitch = create.pitch;
@@ -167,13 +178,35 @@ static int modeset_create_yuvfb(int fd, struct buffer_object *bo)
 	bo->vaddr = mmap(0, create.size, PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd, map.offset);
 
+	printf("bo->pitch %d\n",bo->pitch);
 
-	offsets[0] = 0;
-	handles[0] = bo->handle;
-	pitches[0] = bo->pitch;
+
+#if 0
+		// for YUV 422 model
+		hsub = 2;
+		vsub = 1;
+		height = bo->height;
+	
+ 		offsets[0] = 0;
+ 		handles[0] = bo->handle;
+ 		pitches[0] = bo->pitch;
+
+		pitches[1] = pitches[0] / hsub;
+ 		offsets[1] = pitches[0] * height;
+ 		handles[1] = bo->handle;
+ 		pitches[2] = pitches[1];
+		offsets[2] = offsets[1] + pitches[1] * height / vsub;
+ 		handles[2] = bo->handle;
+#else
+		offsets[0] = 0;
+		handles[0] = bo->handle;
+		pitches[0] = bo->pitch;
+
+#endif
+
 
 	ret = drmModeAddFB2(fd, bo->width, bo->height,
-		    DRM_FORMAT_YUV422, handles, pitches, offsets,&bo->fb_id, 0);
+		    DRM_FORMAT_YUYV, handles, pitches, offsets,&bo->fb_id, 0);
 	if(ret ){
 		printf("drmModeAddFB2 return err %d\n",ret);
 		return 0;
@@ -299,7 +332,11 @@ void set_alpha(int fd, int plane_id,int value)
 }
 
 
-int main(int argc, char **argv)
+int cpy_video_buff(unsigned char *cemaro_buf)
+{
+	memcpy(plane_buf[2].vaddr,cemaro_buf,plane_buf[2].size);
+}
+int set_frame_buff(int width, int height,unsigned char *cemaro_buf)
 {
 	int fd;
 	drmModeConnector *conn;
@@ -311,8 +348,13 @@ int main(int argc, char **argv)
 	int ret;
 	int rotation = 1,alpha = 10;;
 
+	
 
 	fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+	if(!fd){
+		printf("open DRM device error\n");
+		return -1;
+	}
 
 	res = drmModeGetResources(fd);
 	crtc_id = res->crtcs[0];
@@ -335,11 +377,17 @@ int main(int argc, char **argv)
 	buf.width = conn->modes[0].hdisplay;
 	buf.height = conn->modes[0].vdisplay;
 
-	printf("get connector nanme %s,hdisplay %d, vdisplay %d,vrefresh %d\n",conn->modes[0].name,conn->modes[0].vdisplay,\
-		conn->modes[0].hdisplay,conn->modes[0].vrefresh);
+	if(conn->modes[0].vdisplay <  height || conn->modes[0].hdisplay < width){
+		printf("cemora size over the max limit\n");
+		printf("get connector nanme %s,vdisplay %d, hdisplay %d,vrefresh %d\n",conn->modes[0].name,conn->modes[0].vdisplay,\
+			conn->modes[0].hdisplay,conn->modes[0].vrefresh);
+
+		return -1;
+	}
+
 	modeset_create_fb(fd, &buf);
 	drmModeSetCrtc(fd, crtc_id, buf.fb_id,0, 0, &conn_id, 1, &conn->modes[0]);
-	write_color(&buf,0xff00ff00);
+	write_color(&buf,0xffffffff);
 
 
 	//getchar();
@@ -377,10 +425,10 @@ int main(int argc, char **argv)
 
 
 	// -------------------  HEO	
-	plane_buf[2].width = 200;
-	plane_buf[2].height = 200;
-	modeset_create_fb(fd, &plane_buf[2]);
-	write_color_half(&plane_buf[2],0x000000ff,0x00000000);
+	plane_buf[2].width = width;
+	plane_buf[2].height = height;
+	modeset_create_yuvfb(fd, &plane_buf[2]);
+	//write_color_half(&plane_buf[2],0x000000ff,0x00000000);
 
 	//printf("press any key continue\n");
 	//getchar();
@@ -388,8 +436,18 @@ int main(int argc, char **argv)
 	
 	x = 0;
 	y = 0;
-	set_alpha(fd,plane_res->planes[3],255);
+	//set_alpha(fd,plane_res->planes[3],255);
 	
+	ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
+			x, y, plane_buf[2].width,plane_buf[2].height,
+			0<<16, 0<<16, 
+			(plane_buf[2].width) << 16, (plane_buf[2].height) << 16);
+	if(ret < 0)
+		printf("drmModeSetPlane err %d\n",ret);	
+		
+	memcpy(plane_buf[2].vaddr,cemaro_buf,plane_buf[2].size);
+#if 0	
+		
 	while(1){
 		/* Source values are 16.16 fixed point */
 		ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
@@ -437,6 +495,7 @@ int main(int argc, char **argv)
 	drmModeFreeResources(res);
 
 	close(fd);
+#endif
 
 	return 0;
 }
