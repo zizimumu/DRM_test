@@ -216,13 +216,16 @@ void get_planes_property(int fd,drmModePlaneRes *pr)
 		printf("planes id %d\n",pr->planes[i]);
 		props = drmModeObjectGetProperties(fd, pr->planes[i],
 					DRM_MODE_OBJECT_PLANE);
-					
-		for (j = 0;j < props->count_props; j++) {
-			p = drmModeGetProperty(fd, props->props[j]);
-			printf("get property ,name %s, id %d\n",p->name,p->prop_id);
-			drmModeFreeProperty(p);
-		}	
-		
+		if(props){		
+            for (j = 0;j < props->count_props; j++) {
+                p = drmModeGetProperty(fd, props->props[j]);
+                printf("get property ,name %s, id %d\n",p->name,p->prop_id);
+                drmModeFreeProperty(p);
+            }	
+            
+            
+            drmModeFreeObjectProperties(props);
+		}
 		printf("\n\n");
 	}
 	
@@ -238,32 +241,39 @@ void set_plane_property(int fd, int plane_id,struct property_arg *p)
 	int i;
 
 
+
 	props = drmModeObjectGetProperties(fd, plane_id,
 				DRM_MODE_OBJECT_PLANE);
 	
-	for (i = 0; i < (int)props->count_props; ++i) {
+    if(props){
+        for (i = 0; i < (int)props->count_props; ++i) {
 
-		pt = drmModeGetProperty(fd, props->props[i]);
-	
-		if (!pt)
-			continue;
-		if (strcmp(pt->name, p->name) == 0)
-			break;
-	}
+            pt = drmModeGetProperty(fd, props->props[i]);
+        
+            if (!pt)
+                continue;
+            if (strcmp(pt->name, p->name) == 0){
+                drmModeFreeProperty(pt);
+                break;
+            }
+            
+            drmModeFreeProperty(pt);
+        }
 
-	if (i == (int)props->count_props) {
-		printf("%i has no %s property\n",p->obj_id, p->name);
-		return;
-	}
+        if (i == (int)props->count_props) {
+            printf("%i has no %s property\n",p->obj_id, p->name);
+            return;
+        }
 
-	p->prop_id = props->props[i];
+        p->prop_id = props->props[i];
 
-	ret = drmModeObjectSetProperty(fd, p->obj_id, p->obj_type,
-				       p->prop_id, p->value);
-	if (ret < 0)
-		printf("faild to set property %s,id %d,value %d\n",p->obj_id, p->name, p->value);
+        ret = drmModeObjectSetProperty(fd, p->obj_id, p->obj_type,
+                           p->prop_id, p->value);
+        if (ret < 0)
+            printf("faild to set property %s,id %d,value %d\n",p->obj_id, p->name, p->value);
 
-	
+        drmModeFreeObjectProperties(props);
+    }
 }
 
 
@@ -272,12 +282,15 @@ void set_rotation(int fd, int plane_id,int value)
 	struct property_arg prop;
 	
 
+    if(value !=1 && value !=2 && value !=4 && value !=8)
+        return;
+    
 	memset(&prop, 0, sizeof(prop));
 	prop.obj_type = 0;
 	prop.name[DRM_PROP_NAME_LEN] = '\0';
 	prop.obj_id = plane_id;
 	memcpy(prop.name,"rotation",sizeof("rotation"));
-	prop.value = value; // 1->0^, 2->90^, 3 ->180^,
+	prop.value = value; //rotate-0=0x1 rotate-90=0x2 rotate-180=0x4 rotate-270=0x8, modetest -p can show the details
 	set_plane_property(fd,plane_id,&prop);
 
 }
@@ -342,89 +355,42 @@ int main(int argc, char **argv)
 	write_color(&buf,0xff00ff00);
 
 
-	//getchar();
-			
-	
-	// -------------------  overlay 1
-	plane_buf[0].width = 200;
-	plane_buf[0].height = 200;
-	modeset_create_fb(fd, &plane_buf[0]);
-	write_color(&plane_buf[0],0x00ff0000);
-
-	ret = drmModeSetPlane(fd, plane_res->planes[1], crtc_id, plane_buf[0].fb_id, 0,
-			50, 50, plane_buf[0].width,plane_buf[0].height,
-			0, 0, (plane_buf[0].width) << 16, (plane_buf[0].height) << 16);
-	if(ret < 0)
-		printf("drmModeSetPlane err %d\n",ret);
-	
-
-	// -------------------  overlay 2
-	plane_buf[1].width = 200;
-	plane_buf[1].height = 200;
-	modeset_create_fb(fd, &plane_buf[1]);
-	write_color(&plane_buf[1],0x0000ff00);
-
-	ret = drmModeSetPlane(fd, plane_res->planes[2], crtc_id, plane_buf[1].fb_id, 0,
-			200, 200, plane_buf[1].width,plane_buf[1].height,
-			0, 0, plane_buf[1].width << 16, plane_buf[1].height << 16);
-	if(ret < 0)
-		printf("drmModeSetPlane err %d\n",ret);
-	
-	
-	get_planes_property(fd,plane_res);
-	
-
-
-
 	// -------------------  HEO	
 	plane_buf[2].width = 200;
 	plane_buf[2].height = 200;
 	modeset_create_fb(fd, &plane_buf[2]);
 	write_color_half(&plane_buf[2],0x000000ff,0x00000000);
 
-	//printf("press any key continue\n");
-	//getchar();
+
 	
-	
-	x = 0;
-	y = 0;
-	set_alpha(fd,plane_res->planes[3],255);
-	
+	x = 300;
+	y = 100;
+	//set_alpha(fd,plane_res->planes[3],255);
+    ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
+            x, y, plane_buf[2].width,plane_buf[2].height,
+            0<<16, 0<<16, 
+            (plane_buf[2].width) << 16, (plane_buf[2].height) << 16);
+    if(ret < 0)
+        printf("drmModeSetPlane err %d\n",ret);		
+        
+        
+    set_alpha(fd,plane_res->planes[3],255);
+    rotation = 1;
 	while(1){
-		/* Source values are 16.16 fixed point */
-		ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
-				x, y, plane_buf[2].width,plane_buf[2].height,
-				0<<16, 0<<16, 
-				(plane_buf[2].width) << 16, (plane_buf[2].height) << 16);
-		if(ret < 0)
-			printf("drmModeSetPlane err %d\n",ret);	
-		
-		usleep(10000);
-		
-		x += 1;
-		if(x + plane_buf[2].width >= conn->modes[0].hdisplay){
-			x = 0;
-			y += 50;
-			if(y + plane_buf[2].height >= conn->modes[0].vdisplay)
-				y = 0;
-
-		}
-
-		#if 1
-		if(x && (x % 400) == 0){
-			set_rotation(fd,plane_res->planes[3],++rotation);
-			if(rotation >= 4)
-				rotation = 0;
-
-			
-		}
-		#endif
-		// the property can work right now,no need to use drmModeSetPlane
-		set_alpha(fd,plane_res->planes[3],alpha++);
-		if(alpha >= 255)
-			alpha = 10;
 
 		
+		usleep(1000000);
+		
+		//set_alpha(fd,plane_res->planes[3],alpha++);
+		//if(alpha >= 255)
+		//	alpha = 10;
+        //
+   
+        set_rotation(fd,plane_res->planes[3],rotation);
+        
+        rotation = rotation*2; //rotation is 1,2,4,8
+        if(rotation > 8)
+            rotation = 1;
 
 	}
 	

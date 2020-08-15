@@ -308,6 +308,7 @@ int main(int argc, char **argv)
 	uint32_t conn_id;
 	uint32_t crtc_id,x,y;
 	uint32_t plane_id;
+    uint32_t width,height;
 	int ret;
 	int rotation = 1,alpha = 10;;
 
@@ -335,7 +336,7 @@ int main(int argc, char **argv)
 	buf.width = conn->modes[0].hdisplay;
 	buf.height = conn->modes[0].vdisplay;
 
-	printf("get connector nanme %s,hdisplay %d, vdisplay %d,vrefresh %d\n",conn->modes[0].name,conn->modes[0].vdisplay,\
+	printf("get connector nanme %s,vdisplay %d, hdisplay %d,vrefresh %d\n",conn->modes[0].name,conn->modes[0].vdisplay,\
 		conn->modes[0].hdisplay,conn->modes[0].vrefresh);
 	modeset_create_fb(fd, &buf);
 	drmModeSetCrtc(fd, crtc_id, buf.fb_id,0, 0, &conn_id, 1, &conn->modes[0]);
@@ -344,7 +345,7 @@ int main(int argc, char **argv)
 
 	//getchar();
 			
-	
+#if 0	
 	// -------------------  overlay 1
 	plane_buf[0].width = 200;
 	plane_buf[0].height = 200;
@@ -373,58 +374,45 @@ int main(int argc, char **argv)
 	
 	get_planes_property(fd,plane_res);
 	
-
+#endif
 
 
 	// -------------------  HEO	
-	plane_buf[2].width = 200;
-	plane_buf[2].height = 200;
+	plane_buf[2].width = 50;
+	plane_buf[2].height = 50;
 	modeset_create_fb(fd, &plane_buf[2]);
 	write_color_half(&plane_buf[2],0x000000ff,0x00000000);
 
 	//printf("press any key continue\n");
 	//getchar();
-	
-	
-	x = 0;
-	y = 0;
-	set_alpha(fd,plane_res->planes[3],255);
-	
+    ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
+            x, y, plane_buf[2].width,plane_buf[2].height,
+            0<<16, 0<<16, 
+            (plane_buf[2].width) << 16, (plane_buf[2].height) << 16);	
+            
+            
+	width = plane_buf[2].width;
+    height = plane_buf[2].height;
+    x = 0;
+    y = 0;
 	while(1){
 		/* Source values are 16.16 fixed point */
 		ret = drmModeSetPlane(fd, plane_res->planes[3], crtc_id, plane_buf[2].fb_id, 0,
-				x, y, plane_buf[2].width,plane_buf[2].height,
+				x, y, width,height,
 				0<<16, 0<<16, 
 				(plane_buf[2].width) << 16, (plane_buf[2].height) << 16);
 		if(ret < 0)
 			printf("drmModeSetPlane err %d\n",ret);	
 		
-		usleep(10000);
+		usleep(1000000);
 		
-		x += 1;
-		if(x + plane_buf[2].width >= conn->modes[0].hdisplay){
-			x = 0;
-			y += 50;
-			if(y + plane_buf[2].height >= conn->modes[0].vdisplay)
-				y = 0;
-
-		}
-
-		#if 1
-		if(x && (x % 400) == 0){
-			set_rotation(fd,plane_res->planes[3],++rotation);
-			if(rotation >= 4)
-				rotation = 0;
-
-			
-		}
-		#endif
-		// the property can work right now,no need to use drmModeSetPlane
-		set_alpha(fd,plane_res->planes[3],alpha++);
-		if(alpha >= 255)
-			alpha = 10;
-
-		
+        width += 50;
+        height += 50;
+        
+        if(width >= conn->modes[0].hdisplay || height >= conn->modes[0].vdisplay){
+            width = plane_buf[2].width;
+            height = plane_buf[2].height; 
+        }
 
 	}
 	

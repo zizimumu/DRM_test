@@ -410,7 +410,7 @@ int main(int argc, char **argv)
 
 		}
 
-		#if 1
+		#if 0
 		if(x && (x % 400) == 0){
 			set_rotation(fd,plane_res->planes[3],++rotation);
 			if(rotation >= 4)
@@ -418,12 +418,12 @@ int main(int argc, char **argv)
 
 			
 		}
-		#endif
+		
 		// the property can work right now,no need to use drmModeSetPlane
 		set_alpha(fd,plane_res->planes[3],alpha++);
 		if(alpha >= 255)
 			alpha = 10;
-
+        #endif
 		
 
 	}
