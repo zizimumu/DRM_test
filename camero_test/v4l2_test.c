@@ -24,7 +24,7 @@ int main()
 {  
 	//1.open device.打开摄像头设备 
 	int index = -1;
-	int fd = open(DEV_PATH,O_RDWR,0);//弄了好久 以阻塞模式打开摄像头  | O_NONBLOCK 非堵塞
+	int fd = open(DEV_PATH,O_RDWR,0);
 	if(fd<0){
 		printf("open device failed.\n");
 	}
